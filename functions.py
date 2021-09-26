@@ -5,16 +5,33 @@ import os
 import jwt
 from datetime import datetime
 
-global tls_verify, aad_tenant, graph_uri
+global tls_verify, vault_addr, aad_tenant, graph_uri
 tls_verify = False
+vault_addr = "https://vault.teokyllc.internal:8200"
 aad_tenant = "5ad90dc5-b02a-4f06-8f90-14d6bccf9282"
 graph_uri = "https://graph.microsoft.com"
 
 def get_vault_secret(path):
-    vault_addr = "https://vault.teokyllc.internal:8200" + path
-    r = requests.get(vault_addr, headers={"X-Vault-Token":os.getenv("VAULT_TOKEN")}, verify=tls_verify)
+    vault_path = vault_addr + path
+    r = requests.get(vault_path, headers={"X-Vault-Token":os.getenv("VAULT_TOKEN")}, verify=tls_verify)
     to_json = json.loads(str(r.text))
     return to_json["data"]["data"]
+
+def write_vault_secret(service_principal_name, aad_app_id, sp_client_id, sp_client_secret, sp_client_secret_key_id):
+    path = "/v1/secrets/data/azure-service-principals/" + service_principal_name
+    vault_path = vault_addr + path
+    payload = {"data": {
+        "service-principal-name": service_principal_name,
+        "aad-sp-id": aad_app_id,
+        "sp-client-id": sp_client_id,
+        "sp-client-secret": sp_client_secret,
+        "sp-client-secret-key-id": sp_client_secret_key_id
+        }
+    }
+    json_payload = json.dumps(payload, indent = 4) 
+    r = requests.post(vault_path, headers={"X-Vault-Token":os.getenv("VAULT_TOKEN")}, data=json_payload, verify=tls_verify)
+    to_json = json.loads(str(r.text))
+    return to_json["data"]
 
 def msgraph_auth(client_id, client_secret):
     global accessToken
@@ -76,8 +93,8 @@ def create_aad_sp(app_id):
     new_sp = msgraph_post_request(url, requestHeaders, payload)
     return new_sp["id"]
 
-def create_aad_sp_credential(app_id):
-    url = graph_uri + "/beta/servicePrincipals/" + app_id + "/addPassword"
+def create_aad_sp_credential(sp_id):
+    url = graph_uri + "/v1.0/servicePrincipals/" + sp_id + "/addPassword"
     payload = {"passwordCredential": {"displayName": "generated"}}
     new_credential = msgraph_post_request(url, requestHeaders, payload)
     return new_credential
@@ -86,5 +103,4 @@ def new_aad_sp(client_id, client_secret, app_name):
     msgraph_auth(client_id, client_secret)
     new_app = create_aad_app(app_name)
     new_sp = create_aad_sp(new_app)
-    create_aad_sp_credential(new_sp)
     return get_sp(new_sp)
